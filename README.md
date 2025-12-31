@@ -8,7 +8,7 @@ bun install
 
 To run:
 ```bash
-bun run index.ts
+bun run dev
 ```
 
 ## Why Graph-Mode
@@ -44,3 +44,10 @@ turns a graph in the UI into a script (in code).
 As mentioned in the *Primitives* section, **Context Injection and Evaluation** are core to Graph-Mode.
 Outputs should be judged first by the human user and eventially may be judged by an LLM. Tracing steps (or nodes)
 in the script will be essential for identifying paths that are probabilistically more favorable.
+
+## Workflow
+1. In the `graph-scripts` directory, you can start creating scripts directly in your local editor using the primitives
+in `library`
+2. Conversely, you can also start building a graph in the UI
+3. The UI will only build a skeleton of your graph-script. Any code, will need to be edited in your graph-script file
+4. Execute graph-scripts in the UI or run the script from your terminal (For frequently used scripts, you can alias them in your .zshrc, .profile, .bashrc, etc.)

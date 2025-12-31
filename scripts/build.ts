@@ -10,6 +10,7 @@ try {
 	console.log("📁 Creating distribution directory...");
 	await mkdir("./dist", { recursive: true });
 	await mkdir("./dist/public", { recursive: true });
+	await mkdir("./dist/graph-scripts", { recursive: true });
 
 	// Step 2: Build Vite UI
 	console.log("📦 Building UI with Vite...");
