@@ -1,16 +1,13 @@
 import { Database } from "bun:sqlite";
 import * as path from "path";
 import * as fs from "fs";
+import { initializeDb } from "../library/core";
 
 // Resolve database path relative to execution directory
 const dbPath = path.join(process.cwd(), "graph-mode.db");
 const db = new Database(dbPath);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS Nodes(
-    id TEXT PRIMARY KEY
-  )
-`);
+initializeDb(db);
 
 // Resolve public directory
 // The binary looks for public/ in the same directory as the executable
