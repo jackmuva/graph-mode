@@ -1,18 +1,7 @@
 import { Database } from "bun:sqlite";
+import { retry } from "./utils";
 
 const MAX_NODE_EXECUTIONS = 100;
-
-export async function retry<T>(func: () => T | Promise<T>, maxAttempt: number = 3, attempt: number = 1, error?: Error): Promise<T> {
-	if (attempt > maxAttempt) throw new Error(error?.message);
-	try {
-		const res: T = await func();
-		return res;
-	} catch (error) {
-		await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1) * (attempt + 1))
-		);
-		return await retry(func, maxAttempt, attempt + 1, error);
-	}
-}
 
 export const initializeDb = (db: Database) => {
 	db.exec(`
@@ -34,18 +23,15 @@ export const initializeDb = (db: Database) => {
 };
 
 export class GraphNode<InputType, OutputType, NodeEnum> {
-	input: InputType;
 	exec: (input: InputType) => OutputType | Promise<OutputType>;
 	nodeType: string;
 	routing: (output?: OutputType) => NodeEnum | null;
 
 	constructor(params: {
 		nodeType: string,
-		input: InputType,
 		exec: (input: InputType) => OutputType | Promise<OutputType>,
 		routing: (output?: OutputType) => NodeEnum | null,
 	}) {
-		this.input = params.input;
 		this.exec = params.exec;
 		this.nodeType = params.nodeType;
 		this.routing = params.routing;
@@ -119,7 +105,7 @@ export class GraphRunner<NodeEnum> {
 		return output;
 	};
 
-	async executeNode(node: GraphNode<any, any, NodeEnum>, input: any, runId: string, graphId: string): Promise<{ output: any, nextNodeId: NodeEnum | null }> {
+	private async executeNode(node: GraphNode<any, any, NodeEnum>, input: any, runId: string, graphId: string): Promise<{ output: any, nextNodeId: NodeEnum | null }> {
 		let nextNodeId: NodeEnum | null = null;
 		const output = await retry(async () => {
 			try {
