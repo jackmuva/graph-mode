@@ -1,5 +1,7 @@
 import { Database } from "bun:sqlite";
 
+const MAX_NODE_EXECUTIONS = 100;
+
 export async function retry<T>(func: () => T | Promise<T>, maxAttempt: number = 3, attempt: number = 1, error?: Error): Promise<T> {
 	if (attempt > maxAttempt) throw new Error(error?.message);
 	try {
@@ -72,7 +74,10 @@ export class GraphRunner<NodeEnum> {
 		this.input = params.input;
 
 		initializeDb(this.db);
-		this.db.exec(`INSERT INTO Graphs(id, graphName) VALUES(${crypto.randomUUID()}, ${this.graphName}`);
+		const graphIdResult = this.db.prepare(`SELECT id FROM Graphs WHERE graphName = ? LIMIT 1`).all(this.graphName);
+		if (graphIdResult.length === 0) {
+			this.db.prepare(`INSERT INTO Graphs(id, graphName) VALUES(?, ?)`).run(crypto.randomUUID(), this.graphName);
+		}
 		this.nodeMap = {};
 		this.initializeNodeMap();
 	};
@@ -83,47 +88,48 @@ export class GraphRunner<NodeEnum> {
 		}
 	};
 
-	async run() {
+	async run(): Promise<any> {
 		const runId = crypto.randomUUID();
-		const graphId = this.db.query(`SELECT graphName FROM Graphs WHERE graphName=${this.graphName}`).all()
-		if (graphId.length === 0) throw Error("Could not find graphId");
+		const graphIdResult = this.db.prepare(`SELECT id FROM Graphs WHERE graphName = ? LIMIT 1`).all(this.graphName);
+		if (graphIdResult.length === 0) throw Error("Could not find graphId");
+		const graphId = (graphIdResult[0] as { id: string }).id;
 
 		let nextNode: GraphNode<any, any, NodeEnum> | null = this.nodeMap[String(this.startNode)];
 		let input: any = this.input;
 		let nextNodeId: NodeEnum | null = null;
-		let output = await retry(() => {
+		let execution = await this.executeNode(nextNode, input, runId, graphId);
+		let output = execution.output;
+		nextNodeId = execution.nextNodeId;
+		nextNodeId ? nextNode = this.nodeMap[String(nextNodeId)] : null;
+
+		let executions = 0;
+		while (nextNode && executions < MAX_NODE_EXECUTIONS) {
+			input = structuredClone(output);
+			execution = await this.executeNode(nextNode, input, runId, graphId);
+			output = execution.output;
+			nextNodeId = execution.nextNodeId;
+			nextNodeId ? nextNode = this.nodeMap[String(nextNodeId)] : null;
+			executions += 1;
+		}
+		return output;
+	};
+
+	async executeNode(node: GraphNode<any, any, NodeEnum>, input: any, runId: string, graphId: string): Promise<{ output: any, nextNodeId: NodeEnum | null }> {
+		let nextNodeId: NodeEnum | null = null;
+		const output = await retry(async () => {
 			try {
-				const out = nextNode!.exec(input);
-				nextNodeId = nextNode!.routing(out);
-				this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
-					VALUES(${runId}, ${graphId[0]}, ${String(nextNode!.nodeType)}, ${JSON.stringify(input)}, ${JSON.stringify(output)}, ${nextNodeId ? nextNodeId : "END"}, ${new Date().toISOString()}, 1) `);
+				const out = await node.exec(input);
+				nextNodeId = node.routing(out);
+				this.db.prepare(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
+					VALUES(?, ?, ?, ?, ?, ?, ?, ?) `).run(runId, graphId, String(node.nodeType), JSON.stringify(input), JSON.stringify(out), nextNodeId ? String(nextNodeId) : "END", new Date().toISOString(), 1);
 				return out;
 			} catch (err) {
 				nextNodeId = null;
-				this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
-					VALUES(${runId}, ${graphId[0]}, ${String(nextNode!.nodeType)}, ${JSON.stringify(input)}, ${JSON.stringify(output)}, ${String(nextNode!.nodeType)}, ${new Date().toISOString()}, 0) `);
+				this.db.prepare(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
+					VALUES(?, ?, ?, ?, ?, ?, ?, ?) `).run(runId, graphId, String(node.nodeType), JSON.stringify(input), JSON.stringify(err), String(node.nodeType), new Date().toISOString(), 0);
 				throw Error("Node failed to execute");
 			}
 		}, 3, 1);
-		nextNodeId ? nextNode = this.nodeMap[String(nextNodeId)] : null;
-
-		while (nextNode) {
-			input = output;
-			output = await retry(() => {
-				try {
-					const out = nextNode!.exec(input);
-					nextNodeId = nextNode!.routing(out);
-					this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
-					VALUES(${runId}, ${graphId[0]}, ${String(nextNode!.nodeType)}, ${JSON.stringify(input)}, ${JSON.stringify(output)}, ${nextNodeId ? nextNodeId : "END"}, ${new Date().toISOString()}, 1) `);
-					return out;
-				} catch (err) {
-					nextNodeId = null;
-					this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
-					VALUES(${runId}, ${graphId[0]}, ${String(nextNode!.nodeType)}, ${JSON.stringify(input)}, ${JSON.stringify(output)}, ${String(nextNode!.nodeType)}, ${new Date().toISOString()}, 0) `);
-					throw Error("Node failed to execute");
-				}
-			}, 3, 1);
-			nextNodeId ? nextNode = this.nodeMap[String(nextNodeId)] : null;
-		}
-	};
+		return { output, nextNodeId }
+	}
 }
