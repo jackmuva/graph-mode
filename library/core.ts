@@ -73,6 +73,7 @@ export class GraphRunner<NodeEnum> {
 
 		initializeDb(this.db);
 		this.db.exec(`INSERT INTO Graphs(id, graphName) VALUES(${crypto.randomUUID()}, ${this.graphName}`);
+		this.nodeMap = {};
 		this.initializeNodeMap();
 	};
 
@@ -82,7 +83,7 @@ export class GraphRunner<NodeEnum> {
 		}
 	};
 
-	run() {
+	async run() {
 		const runId = crypto.randomUUID();
 		const graphId = this.db.query(`SELECT graphName FROM Graphs WHERE graphName=${this.graphName}`).all()
 		if (graphId.length === 0) throw Error("Could not find graphId");
@@ -90,16 +91,16 @@ export class GraphRunner<NodeEnum> {
 		let nextNode: GraphNode<any, any, NodeEnum> | null = this.nodeMap[String(this.startNode)];
 		let input: any = this.input;
 		let nextNodeId: NodeEnum | null = null;
-		let output = retry(() => {
+		let output = await retry(() => {
 			try {
 				const out = nextNode!.exec(input);
-				nextNodeId = nextNode!.routing(output);
+				nextNodeId = nextNode!.routing(out);
 				this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
 					VALUES(${runId}, ${graphId[0]}, ${String(nextNode!.nodeType)}, ${JSON.stringify(input)}, ${JSON.stringify(output)}, ${nextNodeId ? nextNodeId : "END"}, ${new Date().toISOString()}, 1) `);
 				return out;
 			} catch (err) {
 				nextNodeId = null;
-				this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime) 
+				this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
 					VALUES(${runId}, ${graphId[0]}, ${String(nextNode!.nodeType)}, ${JSON.stringify(input)}, ${JSON.stringify(output)}, ${String(nextNode!.nodeType)}, ${new Date().toISOString()}, 0) `);
 				throw Error("Node failed to execute");
 			}
@@ -108,16 +109,16 @@ export class GraphRunner<NodeEnum> {
 
 		while (nextNode) {
 			input = output;
-			output = retry(() => {
+			output = await retry(() => {
 				try {
 					const out = nextNode!.exec(input);
-					nextNodeId = nextNode!.routing(output);
+					nextNodeId = nextNode!.routing(out);
 					this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
 					VALUES(${runId}, ${graphId[0]}, ${String(nextNode!.nodeType)}, ${JSON.stringify(input)}, ${JSON.stringify(output)}, ${nextNodeId ? nextNodeId : "END"}, ${new Date().toISOString()}, 1) `);
 					return out;
 				} catch (err) {
 					nextNodeId = null;
-					this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime) 
+					this.db.exec(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
 					VALUES(${runId}, ${graphId[0]}, ${String(nextNode!.nodeType)}, ${JSON.stringify(input)}, ${JSON.stringify(output)}, ${String(nextNode!.nodeType)}, ${new Date().toISOString()}, 0) `);
 					throw Error("Node failed to execute");
 				}
