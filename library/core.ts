@@ -7,7 +7,7 @@ export const initializeDb = (db: Database) => {
 	db.exec(`
 	  CREATE TABLE IF NOT EXISTS Graphs(
 		id TEXT PRIMARY KEY,
-		graphName TEXT,
+		graphName TEXT
 	  )`);
 	db.exec(`
 	  CREATE TABLE IF NOT EXISTS Runs(
@@ -18,7 +18,7 @@ export const initializeDb = (db: Database) => {
 		output TEXT,
 		routed TEXT,
 		datetime TEXT,
-		success INTEGER,
+		success INTEGER
 	  )`);
 };
 

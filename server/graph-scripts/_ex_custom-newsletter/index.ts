@@ -65,6 +65,7 @@ const inputNode = new GraphNode<ScriptInput, MappedLinks, NodeNames>({
 		return mappedLinks;
 	},
 	routing: (): NodeNames | null => {
+		console.log("finished inputNode");
 		return NodeNames.SELECTOR_NODE;
 	},
 });
@@ -110,6 +111,7 @@ const selectorNode = new GraphNode<MappedLinks, MappedLinks, NodeNames>({
 		return filteredLinks;
 	},
 	routing: (): NodeNames | null => {
+		console.log("finished selecting");
 		return NodeNames.SUMMARIZER_NODE;
 	},
 });
@@ -149,6 +151,7 @@ const summarizerNode = new GraphNode<MappedLinks, MappedLinks, NodeNames>({
 		return summarizedLinks;
 	},
 	routing: (): NodeNames | null => {
+		console.log("finished summarizing");
 		return NodeNames.AGGREGATOR_NODE;
 	}
 });
@@ -197,6 +200,7 @@ const aggregatorNode = new GraphNode<MappedLinks, string, NodeNames>({
 				newsletter += `[${article.title}](${article.url})\n\n`;
 			}
 		}
+		console.log(newsletter);
 		return newsletter;
 	},
 	routing: (): NodeNames | null => {
@@ -213,7 +217,7 @@ const graphRunner = new GraphRunner<NodeNames>({
 });
 
 try {
-	graphRunner.run();
+	await graphRunner.run();
 } catch (err) {
 	console.error("[GRAPH RUNNER]: ", err);
 } finally {
