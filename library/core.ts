@@ -102,14 +102,19 @@ export class GraphRunner<NodeEnum> {
 		nextNodeId = execution.nextNodeId;
 		nextNodeId ? nextNode = this.nodeMap[String(nextNodeId)] : null;
 
-		let executions = 0;
-		while (nextNode && executions < MAX_NODE_EXECUTIONS) {
+		let numExecutions = 1;
+		while (nextNode && numExecutions < MAX_NODE_EXECUTIONS) {
 			input = structuredClone(output);
 			execution = await this.executeNode(nextNode, input, runId, graphId);
 			output = execution.output;
 			nextNodeId = execution.nextNodeId;
 			nextNodeId ? nextNode = this.nodeMap[String(nextNodeId)] : null;
-			executions += 1;
+			numExecutions += 1;
+		}
+		if (numExecutions === MAX_NODE_EXECUTIONS) {
+			this.db.prepare(`INSERT INTO Runs(id, graphId, nodeType, input, output, routed, datetime, success) 
+					VALUES(?, ?, ?, ?, ?, ?, ?, ?) `).run(runId, graphId, String(nextNode.nodeType), JSON.stringify(input), "MAX ITERATIONS reached", String(nextNode.nodeType), new Date().toISOString(), 0);
+
 		}
 		return output;
 	};
