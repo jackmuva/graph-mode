@@ -117,11 +117,12 @@ const selectorNode = new GraphNode<MappedLinks, MappedLinks, NodeNames>({
 const summarizerNode = new GraphNode<MappedLinks, MappedLinks, NodeNames>({
 	nodeType: NodeNames.SUMMARIZER_NODE,
 	exec: async (input: MappedLinks) => {
-		const summarizedLinks: MappedLinks = {};
+		const summarizedLinks: MappedLinks = { ...input };
 		const systemPrompt: string = `You are an amazing newsletter writer, that specializes in writing 1-2 sentence summaries of articles
 						that will get readers to click on the article link`;
 
 		for (const source of Object.keys(input)) {
+			const links: SearchResultWeb[] = [];
 			for (const link of input[source].mapData.links) {
 				const scraped: Document = await retry<Document>(async () => {
 					return await firecrawl.scrape(link.url, { formats: ["markdown"] });
@@ -136,23 +137,13 @@ const summarizerNode = new GraphNode<MappedLinks, MappedLinks, NodeNames>({
 					return text;
 				}, 4, 3);
 
-				summarizedLinks[source] = {
-					...input[source],
-					mapData: {
-						...input[source].mapData,
-						links: input[source].mapData.links.map((searchRes: SearchResultWeb, i: number) => {
-							if (searchRes.url === link.url) {
-								return {
-									...input[source].mapData.links[i],
-									description: summary
-								}
-							} else {
-								return { ...input[source].mapData.links[i] }
-							}
-						}),
-					}
+				const newRes: SearchResultWeb = {
+					...link,
+					description: summary,
 				}
+				links.push(newRes);
 			}
+			summarizedLinks[source].mapData.links = links;
 		}
 
 		return summarizedLinks;
@@ -221,4 +212,10 @@ const graphRunner = new GraphRunner<NodeNames>({
 	startNode: NodeNames.INPUT_NODE,
 });
 
-graphRunner.run();
+try {
+	graphRunner.run();
+} catch (err) {
+	console.error("[GRAPH RUNNER]: ", err);
+} finally {
+	db.close();
+}
