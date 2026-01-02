@@ -1,4 +1,4 @@
-import { InputNode } from "../../../library/core";
+import { GraphNode, retry } from "../../../library/core";
 import { Database } from "bun:sqlite";
 import * as path from "path";
 import Firecrawl, { MapData } from '@mendable/firecrawl-js';
@@ -26,17 +26,7 @@ export enum NodeNames {
 	AGGREGATOR_NODE = "AGGREGATOR_NODE",
 }
 
-async function retry<T>(func: () => T | Promise<T>, maxAttempt: number = 3, attempt: number = 1, error?: Error): Promise<T> {
-	if (attempt > maxAttempt) throw new Error(error?.message);
-	try {
-		const res: T = await func();
-		return res;
-	} catch (error) {
-		await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1) * (attempt + 1))
-		);
-		return await retry(func, maxAttempt, attempt + 1, error);
-	}
-}
+
 
 const firecrawl = new Firecrawl({ apiKey: process.env.FIRECRAWL_API_KEY });
 
@@ -53,10 +43,8 @@ const scriptInput: ScriptInput = {
 	]
 }
 
-const inputNode = new InputNode<ScriptInput, MappedLinks, NodeNames>({
-	db: db,
-	name: "inputNode",
-	graphName: GRAPH_NAME,
+const inputNode = new GraphNode<ScriptInput, MappedLinks, NodeNames>({
+	nodeType: NodeNames.INPUT_NODE,
 	input: scriptInput,
 	exec: async (input: ScriptInput) => {
 		const mappedLinks: MappedLinks = {};
@@ -66,7 +54,7 @@ const inputNode = new InputNode<ScriptInput, MappedLinks, NodeNames>({
 		}
 		return mappedLinks;
 	},
-	routing: (): NodeNames => {
+	routing: (): NodeNames | null => {
 		return NodeNames.SELECTOR_NODE;
 	},
 });
