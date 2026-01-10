@@ -1,135 +1,162 @@
-import { Database } from "bun:sqlite";
-import { serializeValue, retry } from "./utils";
+import { type Logger, type ExecutionLog, NoOpLogger } from "./logger.js";
+import { serializeValue, retry } from "./utils.js";
 
 const MAX_NODE_EXECUTIONS = 100;
 
 export class GraphNode<InputType, OutputType, NodeEnum> {
 	exec: (input: InputType) => OutputType | Promise<OutputType>;
 	nodeType: string;
+	description: string;
 	routing: (output?: OutputType) => NodeEnum | null;
+	maxAttempts: number;
 
 	constructor(params: {
-		nodeType: string,
-		description: string,
-		exec: (input: InputType) => OutputType | Promise<OutputType>,
-		routing: (output?: OutputType) => NodeEnum | null,
+		nodeType: string;
+		description: string;
+		exec: (input: InputType) => OutputType | Promise<OutputType>;
+		routing: (output?: OutputType) => NodeEnum | null;
+		maxAttempts?: number;
 	}) {
 		this.exec = params.exec;
 		this.nodeType = params.nodeType;
+		this.description = params.description;
 		this.routing = params.routing;
+		params.maxAttempts ? this.maxAttempts = params.maxAttempts : this.maxAttempts = 1;
 	}
+}
+
+export interface GraphRunnerOptions<NodeEnum> {
+	graphName: string;
+	nodes: GraphNode<any, any, NodeEnum>[];
+	startNode: NodeEnum;
+	input: any;
+	logger?: Logger;
+	maxExecutions?: number;
 }
 
 export class GraphRunner<NodeEnum> {
 	graphName: string;
 	nodes: GraphNode<any, any, NodeEnum>[];
-	db: Database;
+	logger: Logger;
 	startNode: NodeEnum;
-	input: string;
-	private nodeMap: { [nodeId: string]: GraphNode<any, any, NodeEnum> }
+	input: any;
+	maxExecutions: number;
+	private nodeMap: { [nodeId: string]: GraphNode<any, any, NodeEnum> };
+	private graphId: string | null = null;
 
-	constructor(params: {
-		graphName: string,
-		nodes: GraphNode<any, any, NodeEnum>[],
-		startNode: NodeEnum,
-		input: any,
-		db?: Database,
-	}) {
+	constructor(params: GraphRunnerOptions<NodeEnum>) {
 		this.graphName = params.graphName;
 		this.nodes = params.nodes;
 		this.startNode = params.startNode;
 		this.input = params.input;
+		this.logger = params.logger ?? new NoOpLogger();
+		this.maxExecutions = params.maxExecutions ?? MAX_NODE_EXECUTIONS;
 
-		if (params.db) {
-			this.db = params.db;
-			this.initializeDb(this.db);
-		} else {
-			this.db = new Database(":memory:");
-		}
-
-		const graphIdResult = this.db.prepare(`SELECT id FROM Graphs WHERE graphName = ? LIMIT 1`).all(this.graphName);
-		if (graphIdResult.length === 0) {
-			this.db.prepare(`INSERT INTO Graphs(id, graphName) VALUES(?, ?)`).run(crypto.randomUUID(), this.graphName);
-		}
 		this.nodeMap = {};
 		this.initializeNodeMap();
-	};
-
-	private initializeDb(db: Database): void {
-		db.exec(`
-	  CREATE TABLE IF NOT EXISTS Graphs(
-		id TEXT PRIMARY KEY,
-		graphName TEXT
-	  )`);
-		db.exec(`
-	  CREATE TABLE IF NOT EXISTS Executions(
-		id TEXT PRIMARY KEY,
-		runId TEXT,
-		graphId TEXT,
-		nodeType TEXT,
-		input TEXT,
-		output TEXT,
-		routed TEXT,
-		datetime TEXT,
-		success INTEGER
-	  )`);
-	};
-
+	}
 
 	private initializeNodeMap() {
 		for (const node of this.nodes) {
 			this.nodeMap[node.nodeType] = node;
 		}
-	};
+	}
+
+	private async ensureGraphId(): Promise<string> {
+		if (!this.graphId) {
+			this.graphId = await this.logger.registerGraph(this.graphName);
+		}
+		return this.graphId!;
+	}
 
 	async run(): Promise<any> {
 		const runId = crypto.randomUUID();
-		const graphIdResult = this.db.prepare(`SELECT id FROM Graphs WHERE graphName = ? LIMIT 1`).all(this.graphName);
-		if (graphIdResult.length === 0) throw Error("Could not find graphId");
-		const graphId = (graphIdResult[0] as { id: string }).id;
+		const graphId = await this.ensureGraphId();
 
-		let nextNode: GraphNode<any, any, NodeEnum> | undefined | null = this.nodeMap[String(this.startNode)];
+		let nextNode: GraphNode<any, any, NodeEnum> | undefined | null =
+			this.nodeMap[String(this.startNode)];
 		if (!nextNode) return;
+
 		let input: any = this.input;
 		let nextNodeId: NodeEnum | null = null;
-		let execution = await this.executeNode(nextNode, input, runId, graphId);
+		let execution = await this.executeNode(nextNode, input, runId, graphId, nextNode.maxAttempts);
 		if (!execution) return;
+
 		let output = execution.output;
 		nextNodeId = execution.nextNodeId;
-		nextNodeId ? nextNode = this.nodeMap[String(nextNodeId)] : null;
+		nextNode = nextNodeId ? this.nodeMap[String(nextNodeId)] : null;
 
 		let numExecutions = 1;
-		while (nextNode && numExecutions < MAX_NODE_EXECUTIONS) {
+		while (nextNode && numExecutions < this.maxExecutions) {
 			input = structuredClone(output);
-			execution = await this.executeNode(nextNode, input, runId, graphId);
+			execution = await this.executeNode(nextNode, input, runId, graphId, nextNode.maxAttempts);
 			if (!execution) return;
 			output = execution.output;
 			nextNodeId = execution.nextNodeId;
-			nextNodeId ? nextNode = this.nodeMap[String(nextNodeId)] : nextNode = null;
+			nextNode = nextNodeId ? this.nodeMap[String(nextNodeId)] : null;
 			numExecutions += 1;
 		}
-		if (numExecutions === MAX_NODE_EXECUTIONS) {
-			this.db.prepare(`INSERT INTO Executions(id, runId, graphId, nodeType, input, output, routed, datetime, success) 
-					VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) `).run(crypto.randomUUID(), runId, graphId, String(nextNode?.nodeType), serializeValue(input), "MAX ITERATIONS reached", String(nextNode?.nodeType), new Date().toISOString(), 0);
 
+		if (numExecutions === this.maxExecutions) {
+			const log: ExecutionLog = {
+				id: crypto.randomUUID(),
+				runId,
+				graphId,
+				nodeType: String(nextNode?.nodeType ?? "UNKNOWN"),
+				input: serializeValue(input),
+				output: "MAX ITERATIONS reached",
+				routed: String(nextNode?.nodeType ?? "UNKNOWN"),
+				datetime: new Date().toISOString(),
+				success: false,
+			};
+			await this.logger.logExecution(log);
 		}
-		return output;
-	};
 
-	private async executeNode(node: GraphNode<any, any, NodeEnum>, input: any, runId: string, graphId: string): Promise<{ output: any, nextNodeId: NodeEnum | null } | null> {
+		return output;
+	}
+
+	private async executeNode(
+		node: GraphNode<any, any, NodeEnum>,
+		input: any,
+		runId: string,
+		graphId: string,
+		maxAttempts: number
+	): Promise<{ output: any; nextNodeId: NodeEnum | null } | null> {
 		try {
 			const { output, nextNodeId } = await retry(async () => {
-				let nextNodeId: NodeEnum | null = null;
 				const output = await node.exec(input);
-				nextNodeId = node.routing(output);
-				this.db.prepare(`INSERT INTO Executions(id, runId, graphId, nodeType, input, output, routed, datetime, success) 
-					VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) `).run(crypto.randomUUID(), runId, graphId, String(node.nodeType), serializeValue(input), serializeValue(output), nextNodeId ? String(nextNodeId) : "END", new Date().toISOString(), 1);
+				const nextNodeId = node.routing(output);
+
+				const log: ExecutionLog = {
+					id: crypto.randomUUID(),
+					runId,
+					graphId,
+					nodeType: String(node.nodeType),
+					input,
+					output,
+					routed: nextNodeId ? String(nextNodeId) : "END",
+					datetime: new Date().toISOString(),
+					success: true,
+				};
+				await this.logger.logExecution(log);
+
 				return { output, nextNodeId };
-			}, 1, 1);
-			return { output, nextNodeId }
+			}, maxAttempts, 1);
+
+			return { output, nextNodeId };
 		} catch (err) {
-			this.db.prepare(`INSERT INTO Executions(id, runId, graphId, nodeType, input, output, routed, datetime, success) 
-					VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) `).run(crypto.randomUUID(), runId, graphId, String(node.nodeType), serializeValue(input), serializeValue(err), String(node.nodeType), new Date().toISOString(), 0);
+			const log: ExecutionLog = {
+				id: crypto.randomUUID(),
+				runId,
+				graphId,
+				nodeType: String(node.nodeType),
+				input,
+				output: err,
+				routed: String(node.nodeType),
+				datetime: new Date().toISOString(),
+				success: false,
+			};
+			await this.logger.logExecution(log);
 			return null;
 		}
 	}

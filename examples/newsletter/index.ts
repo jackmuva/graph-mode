@@ -1,7 +1,8 @@
-import { GraphNode, GraphRunner } from "../../src/core";
+import { GraphNode, GraphRunner } from "../../src/index";
+import { BunSQLiteLogger } from "../../src/loggers/bun-sqlite";
 import { Database } from "bun:sqlite";
 import * as path from "path";
-import Firecrawl, { Document } from '@mendable/firecrawl-js';
+import Firecrawl, { type Document } from '@mendable/firecrawl-js';
 import { retry } from "../../src/utils";
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
@@ -232,11 +233,13 @@ const aggregatorNode = new GraphNode<EnrichedLinks, { newsletter: string }, Node
 	}
 });
 
+const logger = new BunSQLiteLogger(db);
+
 const graphRunner = new GraphRunner<NodeNames>({
 	graphName: GRAPH_NAME,
 	nodes: [inputNode, selectorNode, summarizerNode, aggregatorNode],
 	input: scriptInput,
-	db: db,
+	logger: logger,
 	startNode: NodeNames.INPUT_NODE,
 });
 
