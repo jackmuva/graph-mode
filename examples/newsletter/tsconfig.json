@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@mendable/firecrawl-js": ["./node_modules/@mendable/firecrawl-js"],
+      "ai": ["./node_modules/ai"],
+      "zod": ["./node_modules/zod"]
+    }
+  },
+  "include": ["*.ts"]
+}

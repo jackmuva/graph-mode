@@ -1,0 +1,10 @@
+{
+  "name": "newsletter-example",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@mendable/firecrawl-js": "^4.10.0",
+    "ai": "^6.0.26",
+    "zod": "^4.3.5"
+  }
+}
