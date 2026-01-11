@@ -331,7 +331,7 @@ const sectionNode = new GraphNode<ParsedArticles, Feedback, ProofreaderNodes>({
 	nodeType: ProofreaderNodes.SECTION_PROOFREADER_NODE,
 	description: "Proofreads each section for specific points of emphasis",
 	exec: async (parsed: ParsedArticles): Promise<Feedback> => {
-		const feedback: Feedback = { ...parsed, sectionFeedback: [] }
+		const feedback: Feedback = { ...parsed, sectionFeedback: {} }
 		for (const point of parsed.pointsOfEmphasis) {
 			if (point.type !== "SPECIFIC") continue;
 			const systemPrompt: string = `You are a writing editor with experience in writing high quality articles.
@@ -349,7 +349,7 @@ Write a 1 sentence piece of feedback if the point of emphasis was not hit and pr
 Assign the feedback a score for how important it is to address on a scale from 0 to 5.
 
 If the feedback is positive or not relevant, give it a score of 0`
-				const { output } = await generateText({
+				const { output } = await retry(async () => await generateText({
 					model: "anthropic/claude-haiku-4.5",
 					system: systemPrompt,
 					prompt: prompt,
@@ -359,8 +359,13 @@ If the feedback is positive or not relevant, give it a score of 0`
 							score: z.number().describe("score of importance from 0 to 5")
 						})
 					})
-				});
-				feedback.sectionFeedback![sectionIndex].push(output);
+				}), 3, 1);
+				if (!feedback.sectionFeedback![sectionIndex]) {
+					feedback.sectionFeedback![sectionIndex] = [output];
+				} else {
+					feedback.sectionFeedback![sectionIndex].push(output);
+				}
+				sectionIndex++;
 			}
 		}
 		return feedback;
@@ -396,7 +401,7 @@ Write concise feedback if the point of emphasis was not hit and provide an examp
 Assign the feedback a score for how important it is to address on a scale from 1 to 5
 
  If the feedback is positive or not relevant, give it a score of 0`
-			const { output } = await generateText({
+			const { output } = await retry(async () => await generateText({
 				model: "google/gemini-3-flash",
 				system: systemPrompt,
 				prompt: prompt,
@@ -407,7 +412,7 @@ Assign the feedback a score for how important it is to address on a scale from 1
 					})
 				})
 
-			});
+			}), 3, 1);
 			feedback.overallFeedback?.push(output);
 		}
 
@@ -482,7 +487,7 @@ const logger = new BunSQLiteLogger(db);
 const graphRunner = new GraphRunner<ProofreaderNodes>({
 	graphName: GRAPH_NAME,
 	nodes: [parserNode, sectionNode, highLevelNode, prioritizerNode],
-	input: {},
+	input: articleWithInstruction,
 	logger: logger,
 	startNode: ProofreaderNodes.PARSER_NODE,
 });
