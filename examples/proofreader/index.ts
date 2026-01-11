@@ -311,6 +311,7 @@ const parserNode = new GraphNode<ArticleInstructions, ParsedArticles, Proofreade
 		return parsed;
 	},
 	routing: (output?: ParsedArticles): ProofreaderNodes | null => {
+		console.log("parsed section; ", output?.sections);
 		let hasSpecific: boolean = false;
 		let hasHighLevel: boolean = false;
 		for (const point of output!.pointsOfEmphasis) {
@@ -344,6 +345,10 @@ Write a 1 sentence piece of feedback if the point of emphasis was not hit and pr
 
 			let sectionIndex: number = 0;
 			for (const section of parsed.sections) {
+				if (section.length < 10) {
+					sectionIndex++;
+					continue;
+				}
 				const prompt: string = `Proofread this section for the point of emphasis: ${section}
 
 Assign the feedback a score for how important it is to address on a scale from 0 to 5.
@@ -371,6 +376,7 @@ If the feedback is positive or not relevant, give it a score of 0`
 		return feedback;
 	},
 	routing: (output?: Feedback): ProofreaderNodes | null => {
+		console.log("finished section feedback");
 		let hasHighLevel: boolean = false;
 		for (const point of output!.pointsOfEmphasis) {
 			if (point.type === "HIGH_LEVEL") hasHighLevel = true;
@@ -419,6 +425,7 @@ Assign the feedback a score for how important it is to address on a scale from 1
 		return feedback;
 	},
 	routing: (): ProofreaderNodes | null => {
+		console.log("finished high level feedback");
 		return ProofreaderNodes.PRIORITIZER_NODE;
 	}
 });
@@ -440,6 +447,8 @@ const prioritizerNode = new GraphNode<Feedback, string, ProofreaderNodes>({
 		if (feedback.sectionFeedback && Object.keys(feedback.sectionFeedback)) {
 			report += "---\n\n## Section-level Points\n\n";
 			for (const sectionId of Object.keys(feedback.sectionFeedback)) {
+				if (feedback.sectionFeedback[sectionId]
+					.filter((point: { feedback: string, score: number }) => point.score > 3).length === 0) continue;
 				for (const line of feedback.sections[sectionId].split("\n")) {
 					report += `> ${line}\n`
 				}
@@ -463,12 +472,14 @@ const prioritizerNode = new GraphNode<Feedback, string, ProofreaderNodes>({
 		if (feedback.sectionFeedback && Object.keys(feedback.sectionFeedback)) {
 			report += "---\n\n### Section-level Points\n\n";
 			for (const sectionId of Object.keys(feedback.sectionFeedback)) {
+				if (feedback.sectionFeedback[sectionId]
+					.filter((point: { feedback: string, score: number }) => point.score < 4).length === 0) continue;
 				for (const line of feedback.sections[sectionId].split("\n")) {
 					report += `> ${line}\n`
 				}
 				report += "\n\n";
 				for (const point of feedback.sectionFeedback[sectionId]) {
-					if (point.score > 3) continue;
+					if (point.score >= 4) continue;
 					report += `${point.feedback}\n\n`;
 				}
 			}
