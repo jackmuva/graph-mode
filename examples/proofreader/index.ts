@@ -460,11 +460,11 @@ const prioritizerNode = new GraphNode<Feedback, string, ProofreaderNodes>({
 			}
 		}
 
-		report += "---\n\n##Low Priority Feedback\n\n";
+		report += "---\n\n## Low Priority Feedback\n\n";
 		if (feedback.overallFeedback && feedback.overallFeedback.length > 0) {
 			report += "### High-level Points\n\n";
 			for (const point of feedback.overallFeedback) {
-				if (point.score > 3) continue;
+				if (point.score > 3 || point.score === 0) continue;
 				report += `${point.feedback}\n\n`;
 			}
 		}
@@ -473,17 +473,43 @@ const prioritizerNode = new GraphNode<Feedback, string, ProofreaderNodes>({
 			report += "---\n\n### Section-level Points\n\n";
 			for (const sectionId of Object.keys(feedback.sectionFeedback)) {
 				if (feedback.sectionFeedback[sectionId]
-					.filter((point: { feedback: string, score: number }) => point.score < 4).length === 0) continue;
+					.filter((point: { feedback: string, score: number }) => point.score < 4 && point.score > 0).length === 0) continue;
 				for (const line of feedback.sections[sectionId].split("\n")) {
 					report += `> ${line}\n`
 				}
 				report += "\n\n";
 				for (const point of feedback.sectionFeedback[sectionId]) {
-					if (point.score >= 4) continue;
+					if (point.score > 3 || point.score === 0) continue;
 					report += `${point.feedback}\n\n`;
 				}
 			}
 		}
+
+		report += "---\n\n## Kudos\n\n";
+		if (feedback.overallFeedback && feedback.overallFeedback.length > 0) {
+			report += "### High-level Points\n\n";
+			for (const point of feedback.overallFeedback) {
+				if (point.score !== 0) continue;
+				report += `${point.feedback}\n\n`;
+			}
+		}
+
+		if (feedback.sectionFeedback && Object.keys(feedback.sectionFeedback)) {
+			report += "---\n\n### Section-level Points\n\n";
+			for (const sectionId of Object.keys(feedback.sectionFeedback)) {
+				if (feedback.sectionFeedback[sectionId]
+					.filter((point: { feedback: string, score: number }) => point.score === 0).length === 0) continue;
+				for (const line of feedback.sections[sectionId].split("\n")) {
+					report += `> ${line}\n`
+				}
+				report += "\n\n";
+				for (const point of feedback.sectionFeedback[sectionId]) {
+					if (point.score !== 0) continue;
+					report += `${point.feedback}\n\n`;
+				}
+			}
+		}
+
 		console.log(report);
 		return report;
 	},
