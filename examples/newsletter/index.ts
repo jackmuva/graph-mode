@@ -70,7 +70,7 @@ const scriptInput: ScriptInput = {
 
 const inputNode = new GraphNode<ScriptInput, MdLinks, NodeNames>({
 	nodeType: NodeNames.INPUT_NODE,
-	description: "input websites with instructions on how the agent should look for articles",
+	description: "input websites with instructions on how the agent should look for articles. Firecrawl will retrieve the website article links in markdown",
 	exec: async (input: ScriptInput) => {
 		const mappedLinks: MdLinks = {};
 		for (const source of input.sources) {

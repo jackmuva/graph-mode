@@ -262,7 +262,11 @@ That'll be a question for another Saturday night.
 			type: "HIGH_LEVEL",
 		},
 		{
-			point: "Try to use action verbs if possible",
+			point: "Make sure this article has a reason that readers care, that it's not self-indulging",
+			type: "HIGH_LEVEL",
+		},
+		{
+			point: "Try to use action verbs in the present tense if possible",
 			type: "SPECIFIC",
 			examples: "AI supercharges engineering teams... Harnesses wrangle non-deterministic LLMS..."
 		},
@@ -271,8 +275,13 @@ That'll be a question for another Saturday night.
 			type: "HIGH_LEVEL"
 		},
 		{
-			point: "Use metaphors, similes, and analogies if relevant",
+			point: "Use metaphors, similes, and analogies if relevant.",
 			type: "SPECIFIC",
+		},
+		{
+			point: "Add imagery and more senses like sound, smell, and taste.",
+			type: "SPECIFIC",
+			examples: "The crickets sang in the grasses... from the back of a rain-soaked bycicle"
 		}
 	],
 }
@@ -330,18 +339,19 @@ const parserNode = new GraphNode<ArticleInstructions, ParsedArticles, Proofreade
 
 const sectionNode = new GraphNode<ParsedArticles, Feedback, ProofreaderNodes>({
 	nodeType: ProofreaderNodes.SECTION_PROOFREADER_NODE,
-	description: "Proofreads each section for specific points of emphasis",
+	description: "Proofreads each section for the SPECIFIC points of emphasis",
 	exec: async (parsed: ParsedArticles): Promise<Feedback> => {
 		const feedback: Feedback = { ...parsed, sectionFeedback: {} }
 		for (const point of parsed.pointsOfEmphasis) {
 			if (point.type !== "SPECIFIC") continue;
 			const systemPrompt: string = `You are a writing editor with experience in writing high quality articles.
 
-Your specialized task is to read this section of the article looking for this point of emphasis: ${point.point}
+							Your specialized task is to read this section of the article looking for this point of emphasis: ${point.point}
 
-${point.examples ? `Here are good examples: ${point.examples}` : ""}
+							${point.examples ? `Here are good examples: ${point.examples}` : ""}
 
-Write a 1 sentence piece of feedback if the point of emphasis was not hit and provide an example. If the point was hit or the point is not relevant to this section, say it's not relevant or a 1 sentence acknowledgement of good work.`;
+							Write a 1 sentence piece of feedback if the point of emphasis was not hit and provide an example.
+							If the point was hit or the point is not relevant to this section, say it's not relevant or a 1 sentence acknowledgement of good work.`;
 
 			let sectionIndex: number = 0;
 			for (const section of parsed.sections) {
@@ -351,9 +361,9 @@ Write a 1 sentence piece of feedback if the point of emphasis was not hit and pr
 				}
 				const prompt: string = `Proofread this section for the point of emphasis: ${section}
 
-Assign the feedback a score for how important it is to address on a scale from 0 to 5.
+							Assign the feedback a score for how important it is to address on a scale from 1 to 5 (5 being a MUST CHANGE and 1 being a nice-to-have).
 
-If the feedback is positive or not relevant, give it a score of 0`
+							If the feedback, give it a score of 0. If the feedback is not relevant, git it a score of -1`
 				const { output } = await retry(async () => await generateText({
 					model: "anthropic/claude-haiku-4.5",
 					system: systemPrompt,
@@ -387,7 +397,7 @@ If the feedback is positive or not relevant, give it a score of 0`
 
 const highLevelNode = new GraphNode<Feedback | ParsedArticles, Feedback, ProofreaderNodes>({
 	nodeType: ProofreaderNodes.FULL_PROOFREADER_NODE,
-	description: "Proofreads the entire article with the high level points of emphasis",
+	description: "Proofreads the entire article for the HIGH_LEVEL points of emphasis",
 	exec: async (input: Feedback | ParsedArticles): Promise<Feedback> => {
 		const feedback: Feedback = {
 			...input,
@@ -397,16 +407,17 @@ const highLevelNode = new GraphNode<Feedback | ParsedArticles, Feedback, Proofre
 			if (point.type !== "HIGH_LEVEL") continue;
 			const systemPrompt: string = `You are a writing editor with experience in writing high quality articles.
 
-Your specialized task is to read this article looking for this point of emphasis: ${point.point}
+							Your specialized task is to read this article looking for this point of emphasis: ${point.point}
 
-${point.examples ? `Here are good examples: ${point.examples}` : ""}
+							${point.examples ? `Here are good examples: ${point.examples}` : ""}
 
-Write concise feedback if the point of emphasis was not hit and provide an example. If the point was hit or the point is not relevant to this section, say it's not relevant or a 1 sentence acknowledgement of good work.`;
+							Write concise feedback if the point of emphasis was not hit and provide an example.
+							If the point was hit or the point is not relevant to this section, say it's not relevant or a 1 sentence acknowledgement of good work.`;
 			const prompt: string = `Proofread this article for the point of emphasis: ${input.sections.join("\n")}
 
-Assign the feedback a score for how important it is to address on a scale from 1 to 5
+							Assign the feedback a score for how important it is to address on a scale from 0 to 5 (5 being a MUST CHANGE and 1 being a nice-to-have).
 
- If the feedback is positive or not relevant, give it a score of 0`
+							If the feedback, give it a score of 0. If the feedback is not relevant, git it a score of -1`
 			const { output } = await retry(async () => await generateText({
 				model: "google/gemini-3-flash",
 				system: systemPrompt,
